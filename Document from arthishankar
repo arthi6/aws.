@@ -1,0 +1,66 @@
+import boto3
+
+def check_public_s3_buckets():
+    s3 = boto3.client('s3')
+    response = s3.list_buckets()
+    print("\n[+] Checking Publicly Accessible S3 Buckets...")
+    for bucket in response['Buckets']:
+        bucket_name = bucket['Name']
+        acl = s3.get_bucket_acl(Bucket=bucket_name)
+        for grant in acl['Grants']:
+            if 'URI' in grant['Grantee'] and 'AllUsers' in grant['Grantee']['URI']:
+                print(f"  [!] Public Bucket: {bucket_name}")
+
+def check_s3_logging_and_versioning():
+    s3 = boto3.client('s3')
+    response = s3.list_buckets()
+    print("\n[+] Checking S3 Buckets for Logging and Versioning Disabled...")
+    for bucket in response['Buckets']:
+        bucket_name = bucket['Name']
+        logging = s3.get_bucket_logging(Bucket=bucket_name)
+        versioning = s3.get_bucket_versioning(Bucket=bucket_name)
+
+        logging_enabled = 'LoggingEnabled' in logging
+        versioning_enabled = versioning.get('Status') == 'Enabled'
+
+        if not logging_enabled or not versioning_enabled:
+            print(f"  [!] Misconfigured Bucket: {bucket_name} | Logging: {'Enabled' if logging_enabled else 'Disabled'} | Versioning: {'Enabled' if versioning_enabled else 'Disabled'}")
+
+def check_public_rds_instances():
+    rds = boto3.client('rds')
+    response = rds.describe_db_instances()
+    print("\n[+] Checking Publicly Accessible RDS Instances...")
+    for db in response['DBInstances']:
+        if db.get('PubliclyAccessible'):
+            print(f"  [!] Public RDS Instance: {db['DBInstanceIdentifier']} | Endpoint: {db['Endpoint']['Address']}")
+
+def check_rds_protection_and_backup():
+    rds = boto3.client('rds')
+    response = rds.describe_db_instances()
+    print("\n[+] Checking RDS Instances for Delete Protection and Backup Enabled...")
+    for db in response['DBInstances']:
+        backup_enabled = db.get('BackupRetentionPeriod', 0) > 0
+        delete_protection = db.get('DeletionProtection', False)
+
+        if not backup_enabled or not delete_protection:
+            print(f"  [!] Misconfigured RDS Instance: {db['DBInstanceIdentifier']} | Backup: {'Enabled' if backup_enabled else 'Disabled'} | Deletion Protection: {'Enabled' if delete_protection else 'Disabled'}")
+
+def check_security_groups_for_public_access():
+    ec2 = boto3.client('ec2')
+    response = ec2.describe_security_groups()
+    print("\n[+] Checking Security Groups Allowing Public Access to SSH (22) or MongoDB (27017)...")
+    for sg in response['SecurityGroups']:
+        for perm in sg.get('IpPermissions', []):
+            if 'FromPort' in perm and 'ToPort' in perm and perm.get('IpRanges'):
+                if perm['FromPort'] in [22, 27017] or perm['ToPort'] in [22, 27017]:
+                    for ip_range in perm['IpRanges']:
+                        if ip_range.get('CidrIp') == '0.0.0.0/0':
+                            print(f"  [!] Security Group {sg['GroupId']} ({sg['GroupName']}) allows public access on port {perm['FromPort']}")
+
+if __name__ == "__main__":
+    print("AWS Security Misconfiguration Audit Script")
+    check_public_s3_buckets()
+    check_s3_logging_and_versioning()
+    check_public_rds_instances()
+    check_rds_protection_and_backup()
+    check_security_groups_for_public_access()
